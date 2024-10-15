@@ -5,7 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Mono;
@@ -24,23 +24,25 @@ public class FileUploadController {
     private String uploadDir;
 
     @PostMapping("/upload")
-    public Mono<ResponseEntity<String>> handleFileUpload(@RequestParam("file") MultipartFile file) {
-        return Mono.fromCallable(() -> {
-            Path directory = Paths.get(uploadDir);
-            if (!Files.exists(directory)) {
-                Files.createDirectories(directory);
+    public Mono<ResponseEntity<String>> handleFileUpload(@RequestPart Mono<MultipartFile> file) {
+        return file.flatMap(multipartFile -> {
+            try {
+                Path directory = Paths.get(uploadDir);
+                if (!Files.exists(directory)) {
+                    Files.createDirectories(directory);
+                }
+
+                String originalFilename = sanitizeFileName(Objects.requireNonNull(multipartFile.getOriginalFilename()));
+                Path filePath = directory.resolve(originalFilename);
+                log.info("File path: {}", filePath);
+                Files.write(filePath, multipartFile.getBytes());
+
+                return Mono.just(ResponseEntity.ok("File uploaded successfully: " + originalFilename));
+            } catch (IOException exception) {
+                log.error("File upload failed: {}", exception.getMessage());
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body("Failed to store file " + multipartFile.getOriginalFilename()));
             }
-
-            String originalFilename = sanitizeFileName(Objects.requireNonNull(file.getOriginalFilename()));
-            Path filePath = directory.resolve(originalFilename);
-            log.info("File path: {}", filePath);
-            Files.write(filePath, file.getBytes());
-
-            return ResponseEntity.ok("File uploaded successfully: " + originalFilename);
-        }).onErrorResume(IOException.class, exception -> {
-            log.error("File upload failed: {}", exception.getMessage());
-            return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Failed to store file " + file.getOriginalFilename()));
         });
     }
 
